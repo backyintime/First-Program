@@ -1,147 +1,97 @@
-#include "PerformanceCheck.h"
+#include "performancecheck.h"
+#include <QThread>
 
-QVector < QVector<BiTreeNode* >>* PerformanceCheck::infos_tree = new QVector < QVector<BiTreeNode* >>;
-QVector<BiTreeNode*>* PerformanceCheck::node_group = new QVector<BiTreeNode*>;;
-BiTreeNode* PerformanceCheck::current = nullptr;
-BiTreeNode* PerformanceCheck::root;
-
-int PerformanceCheck::func_id = 0;
-
-PerformanceCheck::PerformanceCheck(const QString& message)
+PerformanceCheck::PerformanceCheck(const QString& funcName)
+    : m_funcName(funcName), m_Start(std::chrono::high_resolution_clock::now()) 
 {
-    m_Message = new QString(message/* + "," + QString::number(func_id++)*/);
-
-    RecordInfo();    //存储信息
-
-    m_Start = std::chrono::high_resolution_clock::now();    //设置开始时间
-    m_End = m_Start;
+    RecordInfo();
 }
 
-PerformanceCheck::~PerformanceCheck()
+PerformanceCheck::~PerformanceCheck() 
 {
     m_End = std::chrono::high_resolution_clock::now();
-    //*m_Message += "," + QString::number(std::chrono::duration_cast<std::chrono::nanoseconds>(m_End - m_Start).count());
+    qint64 elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(m_End - m_Start).count();
 
-    int i = FindThread(*thread_id);
-    if (i != -1)
+    QString threadId = QString::number(reinterpret_cast<quintptr>(QThread::currentThreadId()));
+    int idx = GetOrAddThreadIndex(threadId);
+    BiTreeNode*& current = infos_tree[idx][1];
+    current->time = elapsed;
+
+    if (current->parent) 
     {
-        current = (*infos_tree)[i][CURRENT];
-        current->time = std::chrono::duration_cast<std::chrono::nanoseconds>(m_End - m_Start).count();
-        //root->time += current->time;
-        if (current->parent != nullptr)
-        {
-            current = current->parent;
-            (*infos_tree)[i][CURRENT] = current;
-        }
-    }
-
-}
-
-void PerformanceCheck::RecordInfo()
-{
-    BiTreeNode* new_node = new BiTreeNode;
-    new_node->func_info = m_Message;
-
-    thread_id = new QString(QString::number(GetCurrentThreadId()));
-    int i = FindThread(*thread_id);
-    if (i != -1)
-    {
-        current = (*infos_tree)[i][CURRENT];
-        if (current->leftChild != nullptr)
-        {
-            current = current->leftChild;
-            while (current->rightChild != nullptr)
-            {
-                current = current->rightChild;
-            }
-            current->rightChild = new_node;
-             new_node->parent = current->parent;
-        }
-        else
-        {
-            current->leftChild = new_node;
-            new_node->parent = current;
-        }
-        current = new_node;
-        (*infos_tree)[i][CURRENT] = current;
-    }
-    else     //新线程
-    {
-        root = new BiTreeNode;
-        root->func_info = thread_id;
-        root->time = 0;
-        root->leftChild = new_node;
-        new_node->parent = root;
-        current = new_node;
-
-        node_group->clear();
-
-        node_group->push_back(root);
-        node_group->push_back(new_node);
-        infos_tree->push_back(*node_group);
+        current = current->parent;
+        infos_tree[idx][1] = current;
     }
 }
 
-int PerformanceCheck::FindThread(const QString &message)
+void PerformanceCheck::RecordInfo() 
 {
-    for (int i = 0; i < infos_tree->size(); i++)
-    {
-        if (*(*infos_tree)[i][ROOT]->func_info == message)
-            return i;
+    auto* newNode = new BiTreeNode;
+    newNode->func_info = m_funcName;
+
+    QString threadId = QString::number(reinterpret_cast<quintptr>(QThread::currentThreadId()));
+    int idx = GetOrAddThreadIndex(threadId);
+
+    BiTreeNode*& current = infos_tree[idx][1];
+    BiTreeNode* parent = current;
+    parent->children.append(newNode);
+    newNode->parent = parent;
+    infos_tree[idx][1] = newNode;
+}
+
+int PerformanceCheck::GetOrAddThreadIndex(const QString& threadId)
+{
+    if (threadIndexMap.contains(threadId)) {
+        return threadIndexMap[threadId];
     }
-    return -1;
+
+    auto* root = new BiTreeNode;
+    root->func_info = QString("Thread %1").arg(threadId);
+    root->time = 0;
+
+    BiTreeNode* current = root;
+
+    QVector<BiTreeNode*> group;
+    group.append(root); 
+    group.append(current);
+
+    int index = infos_tree.size();
+    infos_tree.append(group);
+    threadIndexMap[threadId] = index;
+    return index;
 }
 
-void PerformanceCheck::InOrder(BiTreeNode *subTree)
-{
-    QStack<BiTreeNode*> S;
-    BiTreeNode* t;
-    S.push(subTree);    //根节点进栈
-    while (!S.empty())  //当栈不为空
-    {
-        t = S.top();    //p先记住栈顶元素，然后栈顶出栈
-        S.pop();
-        qDebug() << *t->func_info << " ";    //访问元素
-        if (t->rightChild != NULL)      //右孩子不为空，右孩子进栈
-        {
-            S.push(t->rightChild);
-        }
-        if (t->leftChild != NULL)       //左孩子不为空，左孩子进栈
-        {
-            S.push(t->leftChild);
-        }
-    }
-}
-
-void PerformanceCheck::ShowInfo()
-{
-    for (int i = 0; i < infos_tree->size(); ++i)
-        InOrder((*infos_tree)[i][ROOT]);
-}
-
-QVector<QVector<BiTreeNode*>> *&PerformanceCheck::GetRoot()
-{
-    return infos_tree;
-}
-
-void PerformanceCheck::DelTree(BiTreeNode *node)
-{
-    if (node != nullptr)
-    {
-        DelTree(node->leftChild);
-        DelTree(node->rightChild);
-        delete  node->func_info;
-        delete node;
-        node = nullptr;
+void PerformanceCheck::ShowInfo() {
+    for (const auto& group : infos_tree) {
+        PrintTree(group[0]);
     }
 }
 
-void PerformanceCheck::DelVector()
+void PerformanceCheck::PrintTree(BiTreeNode* node, int depth) 
 {
-    for (int i = 0; i < infos_tree->size(); ++i)
-        DelTree((*infos_tree)[i][ROOT]);
+    if (!node) return;
 
-    delete node_group;
-    delete infos_tree;
+    qDebug().noquote() << QString(depth * 2, ' ') << node->func_info << ": " << node->time << "ns";
+    for (auto* child : node->children) 
+    {
+        PrintTree(child, depth + 1);
+    }
 }
 
+void PerformanceCheck::Cleanup()
+{
+    for (auto& group : infos_tree)
+        DeleteTree(group[0]);
+    
+    infos_tree.clear();
+    threadIndexMap.clear();
+}
+
+void PerformanceCheck::DeleteTree(BiTreeNode* node) 
+{
+    if (!node) return;
+    for (auto* child : node->children) 
+        DeleteTree(child);
+   
+    delete node;
+}

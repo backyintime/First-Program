@@ -1,10 +1,13 @@
 #pragma once
 
-#include"Headers.h"
-#include"MyHeaderView.h"
+#include <QMainWindow>
+#include "performancecheck.h"
+#include"myheaderview.h"
+
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
+class QTreeWidgetItem;
 QT_END_NAMESPACE
 
 class MainWindow : public QMainWindow
@@ -29,14 +32,14 @@ private slots:
     void on_treeWidget_customContextMenuRequested(const QPoint &pos);
 
 private:
-    QVector<QVector<BiTreeNode*>> *v;
+    QVector<QVector<BiTreeNode*>> m_tree;
 
     Ui::MainWindow *ui;   
-    MyHeaderView *myheaderview;
+    MyHeaderView *m_headerview = nullptr;
 
-    QTreeWidgetItem* headerItem;
-    QTreeWidgetItem *topItem;
-    QTreeWidgetItem* item;
-    int m_index;
-    double time_all;
+    QTreeWidgetItem* headerItem = nullptr;
+    QTreeWidgetItem *topItem = nullptr;
+    QTreeWidgetItem* item = nullptr;
+    int m_index = 0;
+    double time_all = 0;
 };
